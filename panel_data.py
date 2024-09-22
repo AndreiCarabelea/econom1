@@ -1,7 +1,15 @@
 import numpy as np 
 import pandas as pd
 import statsmodels.formula.api as smf
+import gc
 
+
+
+class CONSTANTS:
+    FILE_FF = "capmff_2010-2024_ff.csv"
+    FILE_PRICES = "capmff_2010-2024_prices.csv"
+    FILE_SECTOR = "capmff_2010-2024_sector.csv"
+    
 #comment
 def inverse(A):
     
@@ -95,13 +103,103 @@ def EstOLS(Y, X):
 # print(model.summary())
 
 
+def GroupMeansD(mX, mD):
+    """
+    Purpose:
+      Calculate the group means of mX, where mD indicates groups
 
-def  import_prices():
-    df= pd.read_csv("capmff_2010-2024_prices.csv", parse_dates= ['Date'], index_col="Date")
-    for col in df.columns:
-        print(col)
+    Inputs:
+      mX        iN x iK matrix of data
+      mD        iN x iM matrix, dummy indicators
+
+    Return value:
+      mMu       iN x iK matrix, group means
+    """
+    mMb= np.linalg.inv(mD.T@mD)@mD.T@mX
+    mMu= mD@mMb
+
+    return mMu
+
+
+class DataFrame_OP:
+    def __init__(self):
+        self.returns_df = pd.DataFrame()
+        self.ff_df = pd.DataFrame()
+        self.sector_df = pd.DataFrame()
+        self.all_df = pd.DataFrame()
+        
+        
+
+    def  load_log_returns(self):
+        df= pd.read_csv(CONSTANTS.FILE_PRICES, parse_dates= ['Date'], index_col="Date")
+        log_returns = np.log(df / df.shift(1))
+        #ignore first day, returns are not defined
+        df = df.iloc[1:]
+        #ignore stocks with no data for prices 
+        df = df.dropna(axis=1)
+        
+        df_melted = df.reset_index().melt(id_vars='Date', var_name='Stock', value_name='Return')
+
+        # Rename 'index' to 'Date'
+        df_melted.rename(columns={'index': 'Date'}, inplace=True)
+
+       
+        self.returns_df = df_melted
+        
     
-    pass
+    def  load_ff(self):
+        df= pd.read_csv(CONSTANTS.FILE_FF, parse_dates= ['Date'], index_col="Date")
+        #ignore days with no data for ff returns
+        df = df.dropna(axis=0)
+        
+        df["Mkt-RF"] = df["Mkt-RF"] - df["RF"]
+        
+        df.drop(columns=['RF'], inplace=True)
+        
+        self.ff_df = df
+    
+    def load_sectors(self):
+        
+        sector_dict = {}
+        
+        #no need for index 
+        df= pd.read_csv(CONSTANTS.FILE_SECTOR, sep=',', engine='python')
+        #ignore stocks with no sectors defined
+        df = df.dropna(axis=0)
+        
+        df = df.iloc[:, :2]
+        
+        df.rename(columns={'stock': 'Stock'}, inplace=True)
+     
+        self.sector_df = df
+        
+              
+    def join_all_data(self): 
+        
+        assert( len(self.returns_df) > 0 and len(self.ff_df) > 0 and len(self.sector_df) > 0 ) 
+        df_merged1 = pd.merge(self.returns_df, self.ff_df, on='Date', suffixes=('_STOCK', '_INTEREST'))
+        df_merged2 = pd.merge(df_merged1, self.sector_df, on='Stock')
+        
+        df_merged2['Stock_sector'] = df_merged2.iloc[:, 1] + '_' + df_merged2.iloc[:, -1]
+        df_merged2.drop(columns=[df_merged2.columns[1], df_merged2.columns[-2]], inplace=True)
+        
+        gc.collect()  
+        
+        #not needed if use demenead regression    
+        D = pd.get_dummies(df_merged2['Stock_sector'], drop_first = True, dtype = float)
+        
+        #construct DT dummies for time 
+        # DT = 
+        pass
+        
+        self.all_df = df_merged2      
+        
+    
+   
+do_obj = DataFrame_OP()
 
+do_obj.load_log_returns()
+do_obj.load_ff()
+do_obj.load_sectors()
+do_obj.join_all_data()
 
-import_prices()
