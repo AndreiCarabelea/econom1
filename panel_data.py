@@ -194,8 +194,6 @@ class DataFrame_OP:
         df_merged2 = pd.merge(df_merged1, self.sector_df, on='Stock')
         
         df_merged2['Stock_sector'] = df_merged2.iloc[:, 1] + '_' + df_merged2.iloc[:, -1]
-        df_merged2.drop(columns=[df_merged2.columns[1], df_merged2.columns[-2]], inplace=True)
-        
         gc.collect()  
         
         #not needed if use demenead regression    
@@ -217,21 +215,61 @@ do_obj.load_log_returns()
 do_obj.load_ff()
 do_obj.load_sectors()
 do_obj.join_all_data()
+
+#is stock_sector dummy matrix, not used 
 XY, D = do_obj.get_data()
 XY = sm.add_constant(XY)
 
-X_vals = XY[["Mkt-RF", "SMB", "HML"]].values
-Y_vals = XY['Return'].values
 
-# mXc= np.hstack([D, dfX])
+
+N_sectors = len(XY[" sector"].unique())
+K = 3
+N = len(XY)
+
+X_vals = XY[["Mkt-RF", "SMB", "HML", "const"]].values
+Y_vals = XY['Return'].values
 
 model = sm.OLS(Y_vals, X_vals)  # Create the model
 results = model.fit()  # Fit the model
 print(results.summary())
 
-model = sm.OLS(Y_vals, np.hstack([D.values, X_vals]))  # Create the model
+#coefficients
+vB  = results.params
+
+#standard errors 
+vS  = results.bse
+
+#mean squared errors of residuals
+dS2 = results.mse_resid
+
+
+
+# works for unbalanced panel data
+sector_means = XY.groupby(['Date', ' sector'])['Return'].mean().reset_index()
+sector_means.columns = ['Date', ' sector', 'Sector_Mean_Return']
+XY = XY.merge(sector_means, on=['Date', ' sector'], how='left')
+XY['within_return'] = XY['Return'] - XY['Sector_Mean_Return']
+
+#no const for demeneaned
+Y_vals = XY['within_return'].values
+X_vals = XY[["Mkt-RF", "SMB", "HML"]].values
+
+#Fama French will not be demenead as they are not influenced by sector effect 
+model = sm.OLS(XY['within_return'].values, X_vals)  # Create the model
 results = model.fit()  # Fit the model
 print(results.summary())
+
+
+vB= results.params
+#standard errors
+vS= results.bse * np.sqrt((N-K)/(N-K-N_sectors))
+
+#mean squared errors of residuals
+dS2= results.mse_resid * (N-K)/(N-K-N_sectors)
+
+
+
+
 
 
 pass
