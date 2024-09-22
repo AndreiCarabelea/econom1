@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import gc
+import scipy.stats as st
 
 
 
@@ -223,6 +224,7 @@ XY = sm.add_constant(XY)
 
 
 N_sectors = len(XY[" sector"].unique())
+N_days = len(XY["Date"].unique())
 K = 3
 N = len(XY)
 
@@ -240,22 +242,24 @@ vB  = results.params
 vS  = results.bse
 
 #mean squared errors of residuals
-dS2 = results.mse_resid
+dS20 = results.mse_resid
 
 
 
 # works for unbalanced panel data
-sector_means = XY.groupby(['Date', ' sector'])['Return'].mean().reset_index()
-sector_means.columns = ['Date', ' sector', 'Sector_Mean_Return']
-XY = XY.merge(sector_means, on=['Date', ' sector'], how='left')
-XY['within_return'] = XY['Return'] - XY['Sector_Mean_Return']
+XY['within_return'] = XY['Return'] - XY.groupby([' sector'])['Return'].transform('mean')
+
+XY['within_Mkt_RF'] = XY['Mkt-RF'] - XY.groupby([' sector'])['Mkt-RF'].transform('mean')
+XY['within_SMB'] = XY['SMB'] - XY.groupby([' sector'])['SMB'].transform('mean')
+XY['within_HML'] = XY['HML'] - XY.groupby([' sector'])['HML'].transform('mean')
+
 
 #no const for demeneaned
 Y_vals = XY['within_return'].values
-X_vals = XY[["Mkt-RF", "SMB", "HML"]].values
+X_vals = XY[["within_Mkt_RF", "within_SMB", "within_HML"]].values
 
 #Fama French will not be demenead as they are not influenced by sector effect 
-model = sm.OLS(XY['within_return'].values, X_vals)  # Create the model
+model = sm.OLS(Y_vals, X_vals)  # Create the model
 results = model.fit()  # Fit the model
 print(results.summary())
 
@@ -265,12 +269,18 @@ vB= results.params
 vS= results.bse * np.sqrt((N-K)/(N-K-N_sectors))
 
 #mean squared errors of residuals
-dS2= results.mse_resid * (N-K)/(N-K-N_sectors)
+dS21= results.mse_resid * (N-K)/(N-K-N_sectors)
 
 
+#impose constant non zero and dummies coefficients are zero 
+m = N_sectors 
+numerator =  (dS20 * (N - K) - dS21 * (N-K-N_sectors))/m
+denominator = dS21 * (N-K-N_sectors) / ( N - K)
 
+F = numerator/ denominator
 
+f_dist = st.f(m, N - K)
 
+dCrit = f_dist.ppf(0.95)
 
 pass
-
