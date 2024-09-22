@@ -1,6 +1,6 @@
 import numpy as np 
 import pandas as pd
-import statsmodels.formula.api as smf
+import statsmodels.api as sm
 import gc
 
 
@@ -127,18 +127,21 @@ class DataFrame_OP:
         self.ff_df = pd.DataFrame()
         self.sector_df = pd.DataFrame()
         self.all_df = pd.DataFrame()
-        
-        
+        self.D_sector = pd.DataFrame()
+      
+         
+    def get_data(self):
+        return (self.all_df, self.D_sector)  
 
     def  load_log_returns(self):
         df= pd.read_csv(CONSTANTS.FILE_PRICES, parse_dates= ['Date'], index_col="Date")
         log_returns = np.log(df / df.shift(1))
         #ignore first day, returns are not defined
-        df = df.iloc[1:]
+        log_returns = log_returns.iloc[1:]
         #ignore stocks with no data for prices 
-        df = df.dropna(axis=1)
+        log_returns = log_returns.dropna(axis=1)
         
-        df_melted = df.reset_index().melt(id_vars='Date', var_name='Stock', value_name='Return')
+        df_melted = log_returns.reset_index().melt(id_vars='Date', var_name='Stock', value_name='Return')
 
         # Rename 'index' to 'Date'
         df_melted.rename(columns={'index': 'Date'}, inplace=True)
@@ -152,7 +155,7 @@ class DataFrame_OP:
         #ignore days with no data for ff returns
         df = df.dropna(axis=0)
         
-        df["Mkt-RF"] = df["Mkt-RF"] - df["RF"]
+        # df["Mkt-RF"] = df["Mkt-RF"] - df["RF"]
         
         df.drop(columns=['RF'], inplace=True)
         
@@ -172,7 +175,17 @@ class DataFrame_OP:
         df.rename(columns={'stock': 'Stock'}, inplace=True)
      
         self.sector_df = df
+    
+    def get_time_dummy_DF(self, df_merged2):
+        df_merged2['Date'] = df_merged2['Date'].dt.date
+        unique_days = df_merged2['Date'].unique()
+        dummy_time_matrix = np.zeros((df_merged2.shape[0], len(unique_days)))
         
+        for i, day in enumerate(unique_days):
+            dummy_time_matrix[:, i] = (df_merged2['Date'] == day).astype(int)
+        
+        return dummy_time_matrix
+            
               
     def join_all_data(self): 
         
@@ -186,11 +199,13 @@ class DataFrame_OP:
         gc.collect()  
         
         #not needed if use demenead regression    
-        D = pd.get_dummies(df_merged2['Stock_sector'], drop_first = True, dtype = float)
+        D_sector = pd.get_dummies(df_merged2['Stock_sector'], drop_first = True, dtype = float)
+        self.D_sector = D_sector
         
-        #construct DT dummies for time 
-        # DT = 
-        pass
+        #memory error
+        # D_time =   self.get_time_dummy_DF(df_merged2)
+        
+        df_merged2.drop(columns=['Stock_sector'], inplace=True)
         
         self.all_df = df_merged2      
         
@@ -202,4 +217,22 @@ do_obj.load_log_returns()
 do_obj.load_ff()
 do_obj.load_sectors()
 do_obj.join_all_data()
+XY, D = do_obj.get_data()
+XY = sm.add_constant(XY)
+
+X_vals = XY[["Mkt-RF", "SMB", "HML"]].values
+Y_vals = XY['Return'].values
+
+# mXc= np.hstack([D, dfX])
+
+model = sm.OLS(Y_vals, X_vals)  # Create the model
+results = model.fit()  # Fit the model
+print(results.summary())
+
+model = sm.OLS(Y_vals, np.hstack([D.values, X_vals]))  # Create the model
+results = model.fit()  # Fit the model
+print(results.summary())
+
+
+pass
 
